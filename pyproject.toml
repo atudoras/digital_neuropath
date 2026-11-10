@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "digital_neuropath"
+version = "0.4.0"
+description = "Blind per-neuron census and scoring of 3D confocal stacks."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Alex Tudoras-Miravet"}]
+dependencies = [
+    "numpy",
+    "scipy",
+    "scikit-image",
+    "pandas",
+    "tifffile",
+    "readlif",
+    "h5py",
+    "pyyaml",
+    "napari[all]",
+    "tomli; python_version < '3.11'",
+]
+
+[project.scripts]
+digital-neuropath = "digital_neuropath.app:main"
+
+[project.optional-dependencies]
+dev = ["pytest", "ruff", "pyright"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["digital_neuropath*"]
+
+[tool.ruff]
+line-length = 100
+src = ["."]
+
+[tool.pyright]
+include = ["digital_neuropath"]
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
