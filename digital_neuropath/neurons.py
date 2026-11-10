@@ -115,20 +115,42 @@ def label_at_clicks(body: np.ndarray, rows: list[dict[str, str]]) -> list[str]:
 def fade_whole_sphere(neun: np.ndarray, spacing_um: tuple[float, ...],
                       z_um: float, y_um: float, x_um: float,
                       diameter_um: float) -> str:
-    """'yes' when a sphere fades below FADE_THRESHOLD before every stack face."""
-    return census.soma_whole(neun, list(spacing_um),
-                             np.array([[z_um, y_um, x_um]]), diameter_um)[0]
+    """'' when a sphere fades below FADE_THRESHOLD before both z faces, else the nearer z face."""
+    whole = census.soma_whole(neun, list(spacing_um),
+                              np.array([[z_um, y_um, x_um]]), diameter_um)[0]
+    if whole == "yes":
+        return ""
+    return "cut: z top" if z_um <= (neun.shape[0] - 1) * spacing_um[0] - z_um else "cut: z bottom"
+
+
+def sphere_edge(shape: tuple[int, ...], spacing_um: tuple[float, ...],
+                y_um: float, x_um: float, diameter_um: float) -> str:
+    """'cut: y edge' / 'cut: x edge' when the click is within a soma radius of that face."""
+    for axis, name, at in ((1, "cut: y edge", y_um), (2, "cut: x edge", x_um)):
+        if min(at, (shape[axis] - 1) * spacing_um[axis] - at) < diameter_um / 2:
+            return name
+    return ""
+
+
+def mask_edge(body: np.ndarray, label: int) -> str:
+    """'cut: y edge' / 'cut: x edge' when the label has a voxel on that face of the stack."""
+    mask = body == label
+    if mask[:, 0, :].any() or mask[:, -1, :].any():
+        return "cut: y edge"
+    if mask[:, :, 0].any() or mask[:, :, -1].any():
+        return "cut: x edge"
+    return ""
 
 
 def fade_whole_mask(body: np.ndarray, neun: np.ndarray, label: int,
                     spacing_um: tuple[float, ...]) -> str:
-    """'yes' when the mask's NeuN fades below FADE_THRESHOLD before every stack face."""
+    """'' when the mask's NeuN fades below FADE_THRESHOLD before both z faces, else why it is cut."""
     dz = spacing_um[0]
     n_z = neun.shape[0]
     mask = body == label
     zs = np.where(mask.any(axis=(1, 2)))[0]
     if len(zs) < 2:
-        return "no"
+        return "one z plane"
     z_min, z_max = int(zs[0]), int(zs[-1])
     level = np.array([max(float(np.percentile(neun[z][neun[z] > 0], 99.0))
                           if (neun[z] > 0).any() else 1e-9, 1e-9)
@@ -139,29 +161,34 @@ def fade_whole_mask(body: np.ndarray, neun: np.ndarray, label: int,
         if plane_mask.any():
             trace[z] = float(neun[z][plane_mask].mean()) / level[z]
     if not trace:
-        return "no"
+        return "one z plane"
     peak = max(trace.values())
     if peak <= 0:
-        return "no"
-    for face in (0, n_z - 1):
+        return "no neun in mask"
+    for face, name in ((0, "cut: z top"), (n_z - 1, "cut: z bottom")):
         dist_um = abs(face * dz - (z_min if face == 0 else z_max) * dz)
         if dist_um < 2 * dz and trace.get(face, 0.0) / peak >= FADE_THRESHOLD:
-                return "no"
-    return "yes"
+            return name
+    return ""
 
 
 def suggest_whole(body: np.ndarray | None, neun: np.ndarray | None,
                   spacing_um: tuple[float, ...], row: dict,
                   diameter_um: float, mask_label: int | None) -> tuple[str, str]:
-    """(whole, reason) — mask-based when a mask exists, sphere otherwise."""
-    if body is not None and neun is not None and mask_label is not None:
-        return fade_whole_mask(body, neun, mask_label, spacing_um), "mask fade (experimental)"
-    if neun is not None:
-        w = fade_whole_sphere(neun, spacing_um,
-                              float(row["z_um"]), float(row["y_um"]), float(row["x_um"]),
-                              diameter_um)
-        return w, "sphere fade (experimental)"
-    return "", "no neun"
+    """(whole, reason): 'no' with the cut face, 'yes' / 'inside'; mask-based when a mask exists."""
+    if body is not None and mask_label is not None:
+        cut = mask_edge(body, mask_label)
+        if not cut and neun is not None:
+            cut = fade_whole_mask(body, neun, mask_label, spacing_um)
+    elif neun is not None:
+        y_um, x_um = float(row["y_um"]), float(row["x_um"])
+        cut = (sphere_edge(neun.shape, spacing_um, y_um, x_um, diameter_um)
+               or fade_whole_sphere(neun, spacing_um, float(row["z_um"]), y_um, x_um, diameter_um))
+    else:
+        return "", "no neun"
+    if cut:
+        return "no", cut
+    return ("yes", "inside") if neun is not None else ("", "no neun")
 
 
 def build_refined(fov_dir: Path, neurons: list[dict], source: str,

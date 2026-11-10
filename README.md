@@ -33,7 +33,9 @@ python3 score_neurons.py
 `IMAGES`, `NEURON_MASKS` and `NUCLEI_MASKS` are lists of files paired by position: the 1st mask
 goes with the 1st image. Images are `.tif` (OME or ImageJ, voxel size read from the file) or
 `.lif`; masks are labelled `.tif` or NeuroVIT `.cmap`. Each image file is one case. Close a window
-to stop; the same command resumes.
+to stop; the same command resumes. Run again with the same OUTPUT to continue: neurons already
+called are skipped, and only the stains in `SCORE` are shown. A new OUTPUT name starts a new
+dataset; the old one is left as it is.
 
 ## Modules
 

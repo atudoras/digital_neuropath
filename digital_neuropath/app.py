@@ -21,6 +21,7 @@ class _Scoring:
     TITLE = "Scoring"
     SETTINGS: dict[str, settings.Field] = {
         "blind": settings.Field(True, help="shuffled, no image names; False = in order, named"),
+        "score": settings.Field("all", help="stains to score this session; others keep their calls"),
     }
 
     def run(self, project_dir: Path, vals: dict, fovs: list[str] | None = None) -> None:
@@ -32,8 +33,18 @@ class _Scoring:
         masks_dir = Path(masks_dir_str) if masks_dir_str else None
         if not config.get("stains"):
             return
+        chosen = vals.get("score", "all")
         for sc in config.get("stains", []):
             name, ch = sc["name"], sc["channel"]
+            if chosen != "all" and name not in chosen:
+                print(f"  {name}: not in SCORE; its calls are kept")
+                continue
+            waiting = [e for e in sc.get("skip_from", [])
+                       if not score.scoring_dir(project_dir, e).exists()
+                       or score.unanswered(project_dir, e)]
+            if waiting:
+                print(f"  {name}: waits until {', '.join(waiting)} is fully answered")
+                break
             if not score.scoring_dir(project_dir, name).exists():
                 n_existing = len(list(Path(project_dir).glob("scoring_*")))
                 score.build(project_dir, name, ch, sc.get("categories"),
@@ -211,6 +222,7 @@ STAINS = {stains}
 # True : every session, neurons of all images in a new random order, no image names
 # False: image by image, in order, image name and neuron shown
 BLIND = True
+SCORE = list(STAINS)   # stains to score this session; the others keep their calls and are not shown
 
 # ======================================================================
 
@@ -341,6 +353,10 @@ def run_from_settings(path: str | Path) -> None:
             earlier = [st["name"] for st in stains]
             stains.append({"name": name, "channel": spec[0], "categories": list(spec[1]),
                            **({"skip_from": earlier} if earlier else {})})
+    chosen = list(s.get("SCORE", stains_def))
+    unknown = [name for name in chosen if name not in stains_def]
+    if unknown:
+        raise ValueError(f"SCORE names {unknown}, not in STAINS {list(stains_def)}")
 
     # masks: mask i belongs to image i
     masks: dict[str, str] = {}
@@ -371,6 +387,8 @@ def run_from_settings(path: str | Path) -> None:
     params = {k: dict(v) for k, v in s.get("PARAMS", {}).items()}
     if not s.get("BLIND", True):
         params.setdefault("scoring", {})["blind"] = False
+    if {st["name"] for st in stains} - set(chosen):
+        params.setdefault("scoring", {})["score"] = chosen
     if params:
         config["steps"] = params
 

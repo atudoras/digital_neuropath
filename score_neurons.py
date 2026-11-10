@@ -37,6 +37,7 @@ STAINS = {
 # True : every session, neurons of all images in a new random order, no image names
 # False: image by image, in order, image name and neuron shown
 BLIND = True
+SCORE = list(STAINS)   # stains to score this session; the others keep their calls and are not shown
 
 # ======================================================================
 
