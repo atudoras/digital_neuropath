@@ -23,7 +23,7 @@ pip install -e .
 
 ## Run
 
-Leave your files where they are: list their paths in `score_neurons.py` under YOUR CHOICES
+Leave your files where they are: list their paths in `score_neurons.py` under INPUT
 (`FOLDER` once, then `f"{FOLDER}/<file name>"`), set the channels and stains, then:
 
 ```bash
@@ -35,9 +35,9 @@ goes with the 1st image. Images are `.tif` (OME or ImageJ, voxel size read from 
 `.lif`; masks are labelled `.tif` or NeuroVIT `.cmap`. Each image file is one case. Close a window
 to stop; the same command resumes.
 
-## Keys
+## Modules
 
-| Window | Keys |
+| Module | What you do |
 |---|---|
 | Neurons | click each neuron once on its widest plane; close the window, type `y` in Terminal |
 | Refinement | click a neuron to include/exclude (orange = suggested exclusion); close the window when done |
@@ -46,11 +46,3 @@ to stop; the same command resumes.
 ## Outputs
 
 `output/results.csv` — one row per neuron: image, case, position, every stain's call and note. Everything else in `output/` is the tool's working state; leave it in place.
-
-## Limits
-
-- **Donor is the unit.** Analyse the per-case mean, not per-neuron counts.
-- **Cilium call is geometric.** AC3 proximity, not verified.
-- **Neuron masks are external.** `.cmap` files are consumed as delivered.
-
-MIT. See `LICENSE`.

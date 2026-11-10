@@ -182,12 +182,8 @@ def image_sources(paths: list[Path], strict: bool = True) -> list[dict]:
 
 SETTINGS_TEMPLATE = '''\
 # digital_neuropath: per-neuron scoring of 3D confocal stacks
-#
-# 1. Fill in YOUR CHOICES and save.
-# 2. In Terminal, venv active:  python3 {name}
-#    Close a window to stop; the same command resumes where you left off.
 
-# ============================ YOUR CHOICES ============================
+# =============================== INPUT ===============================
 
 # Your files, where they already are, one per line. When they share a folder, write it once
 # here and each file as f"{{FOLDER}}/<file name>"; otherwise give each file's full path.
@@ -484,7 +480,7 @@ def main() -> None:
                        project="output", neuron_masks=["image1_neuron_mask.tif"],
                        nuclei_masks=["image1_nuclei.tif"])
         print(f"Wrote {dest}")
-        print(f"Edit YOUR CHOICES, then:  python3 {dest}")
+        print(f"Edit INPUT, then:  python3 {dest}")
 
     elif args.command == "demo":
         import shutil

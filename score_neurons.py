@@ -1,10 +1,6 @@
 # digital_neuropath: per-neuron scoring of 3D confocal stacks
-#
-# 1. Fill in YOUR CHOICES and save.
-# 2. In Terminal, venv active:  python3 score_neurons.py
-#    Close a window to stop; the same command resumes where you left off.
 
-# ============================ YOUR CHOICES ============================
+# =============================== INPUT ===============================
 
 # Your files, where they already are, one per line. When they share a folder, write it once
 # here and each file as f"{FOLDER}/<file name>"; otherwise give each file's full path.
