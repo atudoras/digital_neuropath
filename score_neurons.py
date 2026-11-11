@@ -34,6 +34,10 @@ STAINS = {
     "ac3": (3, ["yes, normal", "abnormally long", "abnormally short", "not found"]),
 }
 
+# Other stains to load in a stain's window, e.g. {"tdp43": ["acvr1c"]}. Seeing another stain
+# can bias the call; {} keeps each window to DAPI, NeuN and its own stain.
+ALSO_SHOW = {}
+
 # True : every session, neurons of all images in a new random order, no image names
 # False: image by image, in order, image name and neuron shown
 BLIND = True

@@ -147,14 +147,16 @@ def score_stain(root: Path, stain: str, stain_channel: int | None, categories: l
                 seed: int = score.SEED, crop_half_um: float | None = None,
                 screenshot: Path | None = None, target_size_um: float = score.TARGET_SIZE_UM,
                 skip_from: list[str] | None = None, contrast: str = "fov",
-                only: list[str] | None = None, blind: bool = True) -> score.ScoreResult:
+                only: list[str] | None = None, blind: bool = True,
+                also_show: list[str] | None = None) -> score.ScoreResult:
     """Score this stain (blind: shuffled, no names; not blind: in order, named): the first call builds a crop per neuron of every sealed fov; a
     later call adds a round for neurons counted since. Unanswered crops open in napari; once every
     crop is answered, unseal and summarise. stain_channel is the default; a fov registered with its
     own channels uses its index for stain. Neurons answered in imported/<stain>.csv get no crop.
     `only` (fov ids) limits the crops cut now to those fovs; the rest join in a later round.
     crop_half_um: the build's half-size (default score.CROP_HALF_UM); for a later round, None
-    keeps the half-size the build fixed and a number sets this round's (recorded per round)."""
+    keeps the half-size the build fixed and a number sets this round's (recorded per round).
+    also_show: other stains shown in this stain's window; None keeps the stored list."""
     root = Path(root)
     toml = app.read_toml(root)
     nuclei_dir_str = toml.get("masks", {}).get("nuclei")
@@ -164,9 +166,12 @@ def score_stain(root: Path, stain: str, stain_channel: int | None, categories: l
     if not score.scoring_dir(root, stain).exists():
         half = crop_half_um if crop_half_um is not None else score.CROP_HALF_UM
         new = score.build(root, stain, stain_channel, categories, seed, half, skip_from,
-                          contrast, only, nuclei_dir=nuclei_dir, masks_dir=masks_dir)
+                          contrast, only, nuclei_dir=nuclei_dir, masks_dir=masks_dir,
+                          context=also_show)
         print(f"  {stain}: built {new.n_crops} blind crop(s)")
     else:
+        if also_show is not None:
+            score.update_context(root, stain, also_show)
         new = score.extend(root, stain, only, crop_half_um, nuclei_dir=nuclei_dir,
                            masks_dir=masks_dir)
         if new.n_crops:
@@ -182,7 +187,7 @@ def score_stain(root: Path, stain: str, stain_channel: int | None, categories: l
         return score.ScoreResult(stain, n, n)
     filled, left_out = score.add_context(root, stain)
     if filled or left_out:
-        print(f"  {stain}: context {score.SCORING_CONTEXT.get(stain)} added to {filled} crop(s)"
+        print(f"  {stain}: context {score.context(root, stain)} added to {filled} crop(s)"
               + (f"; {left_out} crop(s) shown without it (file not on disk)" if left_out else ""))
     result = score.run(root, stain, screenshot=screenshot, target_size_um=target_size_um,
                        blind=blind)

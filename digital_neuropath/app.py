@@ -50,8 +50,9 @@ class _Scoring:
                 score.build(project_dir, name, ch, sc.get("categories"),
                             seed=score.SEED + n_existing,
                             skip_from=sc.get("skip_from"), nuclei_dir=nuclei_dir,
-                            masks_dir=masks_dir)
+                            masks_dir=masks_dir, context=sc.get("also_show", []))
             else:
+                score.update_context(project_dir, name, sc.get("also_show", []))
                 score.extend(project_dir, name, nuclei_dir=nuclei_dir,
                              masks_dir=masks_dir)
             result = score.run(project_dir, name, blind=vals.get("blind", True))
@@ -118,6 +119,8 @@ def _format_toml(config: dict) -> str:
             lines.append(f"categories = {json.dumps(s['categories'])}")
         if "skip_from" in s:
             lines.append(f"skip_from = {json.dumps(s['skip_from'])}")
+        if "also_show" in s:
+            lines.append(f"also_show = {json.dumps(s['also_show'])}")
         lines.append("")
     if "masks" in config:
         lines.append("[masks]")
@@ -218,6 +221,10 @@ NEUN = 1
 # "unsure" and "not scoreable" are added to every list; [] = loaded, not scored.
 # A neuron called "not scoreable" on one stain is not shown on the next.
 STAINS = {stains}
+
+# Other stains to load in a stain's window, e.g. {{"tdp43": ["acvr1c"]}}. Seeing another stain
+# can bias the call; {{}} keeps each window to DAPI, NeuN and its own stain.
+ALSO_SHOW = {{}}
 
 # True : every session, neurons of all images in a new random order, no image names
 # False: image by image, in order, image name and neuron shown
@@ -347,12 +354,15 @@ def run_from_settings(path: str | Path) -> None:
         channels[name] = ch
 
     # scored stains in order; each skips neurons an earlier one called not scoreable
+    from digital_neuropath import score
+    also_show = score.check_also_show(s.get("ALSO_SHOW", {}), stains_def)
     stains: list[dict] = []
     for name, spec in stains_def.items():
         if isinstance(spec, (list, tuple)) and len(spec) >= 2 and spec[1]:
             earlier = [st["name"] for st in stains]
             stains.append({"name": name, "channel": spec[0], "categories": list(spec[1]),
-                           **({"skip_from": earlier} if earlier else {})})
+                           **({"skip_from": earlier} if earlier else {}),
+                           **({"also_show": also_show[name]} if also_show.get(name) else {})})
     chosen = list(s.get("SCORE", stains_def))
     unknown = [name for name in chosen if name not in stains_def]
     if unknown:

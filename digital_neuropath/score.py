@@ -37,8 +37,8 @@ STAIN_PCT = (1.0, 99.9)
 # "raw" = linear 0 to RAW_TOP_FRACTION of the detector range; "stretch" = 0 to crop p99.99.
 VIEW_STAIN_LIMITS: dict[str, list[float] | str] = {"ac3": "raw"}
 RAW_TOP_FRACTION = 0.5
-SCORING_CONTEXT: dict[str, list[str]] = {"ac3": ["pcnt"]}
-CONTEXT_COLOUR = "red"
+# Other stains shown in a stain's window (ALSO_SHOW), one colour each, none used by SCORING_DISPLAY.
+CONTEXT_COLOURS = ("red", "magenta", "cyan", "yellow")
 CONTEXT_PCT = (90.0, 99.99)
 TARGET_COLOUR = "#FF9F1C"
 # Scoring look: DAPI blue (hidden by default), NeuN grey, stain green.
@@ -181,10 +181,43 @@ def fov_channels(project_dir: Path) -> dict[str, dict[str, int]]:
     return {e["fov"]: e["channels"] for e in entries if e.get("channels")}
 
 
-def context_channels(project_dir: Path, fovs: list[str], stain: str) -> dict[str, dict[str, int]]:
-    """Per fov, the SCORING_CONTEXT channels of this stain its channel map declares."""
+def check_also_show(also_show: dict, stains) -> dict[str, list[str]]:
+    """ALSO_SHOW as lists, refused when it names a stain not in `stains` or a stain itself."""
+    out = {}
+    for stain, names in also_show.items():
+        if stain not in stains:
+            raise ValueError(f"ALSO_SHOW names {stain!r}, not in STAINS {list(stains)}")
+        for name in names:
+            if name == stain:
+                raise ValueError(f"ALSO_SHOW: {stain!r} cannot also show itself")
+            if name not in stains:
+                raise ValueError(f"ALSO_SHOW[{stain!r}] names {name!r}, not in STAINS {list(stains)}")
+        out[stain] = list(names)
+    return out
+
+
+def context(project_dir: Path, stain: str) -> list[str]:
+    """The other stains this stain's window shows, as stored in its scoring.json."""
+    path = scoring_dir(project_dir, stain) / "scoring.json"
+    return list(json.loads(path.read_text()).get("context", [])) if path.exists() else []
+
+
+def update_context(project_dir: Path, stain: str, names: list[str]) -> bool:
+    """Store a changed list of other stains for a built stain and fill its unanswered crops."""
+    if list(names) == context(project_dir, stain):
+        return False
+    scoring = settings(project_dir, stain)
+    scoring["context"] = list(names)
+    (scoring_dir(project_dir, stain) / "scoring.json").write_text(json.dumps(scoring, indent=2))
+    _, left = add_context(project_dir, stain)
+    shown = len(unanswered(project_dir, stain)) - left if names else 0
+    print(f"  {stain}: also showing {list(names)} in {shown} crop(s); {left} wait for their file")
+    return True
+
+
+def context_channels(project_dir: Path, fovs: list[str], names: list[str]) -> dict[str, dict[str, int]]:
+    """Per fov, the channels of `names` its channel map declares."""
     maps = fov_channels(project_dir)
-    names = SCORING_CONTEXT.get(stain, [])
     return {f: {n: int(maps[f][n]) for n in names if n in maps.get(f, {})} for f in fovs}
 
 
@@ -195,9 +228,9 @@ def context_limits(volume: np.ndarray) -> np.ndarray:
 
 
 def add_context(project_dir: Path, stain: str) -> tuple[int, int]:
-    """Add the SCORING_CONTEXT channels to unanswered crops that lack them, cut with the crop's own
+    """Add the stain's context channels to unanswered crops that lack them, cut with the crop's own
     bounds and padding from its fov's source. Returns (crops filled, crops left: file not on disk)."""
-    names = SCORING_CONTEXT.get(stain, [])
+    names = context(project_dir, stain)
     if not names:
         return 0, 0
     crops = scoring_dir(project_dir, stain) / "crops"
@@ -211,7 +244,7 @@ def add_context(project_dir: Path, stain: str) -> tuple[int, int]:
             by_fov.setdefault(row["fov"], []).append(row)
     filled = left = 0
     for fov, rows in by_fov.items():
-        ctx = context_channels(project_dir, [fov], stain)[fov]
+        ctx = context_channels(project_dir, [fov], names)[fov]
         meta = census.read_meta(Path(project_dir) / "fovs" / fov)
         if not ctx or not Path(meta["source"]).exists():
             left += len(rows)
@@ -279,9 +312,10 @@ def build(project_dir: Path, stain: str, stain_channel: int | None, categories: 
           seed: int = SEED, crop_half_um: float = CROP_HALF_UM,
           skip_from: list[str] | None = None, contrast: str = "fov",
           only: list[str] | None = None, nuclei_dir: Path | None = None,
-          masks_dir: Path | None = None) -> ScoreResult:
+          masks_dir: Path | None = None, context: list[str] | None = None) -> ScoreResult:
     """Cut one crop per neuron of every sealed fov (or of the fov ids in `only`), under fresh blind ids: the first round of
-    this stain; fovs sealed later join with extend().
+    this stain; fovs sealed later join with extend(). `context` names other stains cut into
+    each crop and shown in its window (ALSO_SHOW).
     No categories (None or []) means DEFAULT_CATEGORIES. A neuron answered in imported/<stain>.csv
     gets no crop and unseals with that answer; then a neuron any stain in skip_from called not
     scoreable gets no crop and unseals as 'not scoreable (from <first such stain>)'.
@@ -354,8 +388,9 @@ def build(project_dir: Path, stain: str, stain_channel: int | None, categories: 
     ids = iter(blind_ids(sum(len(rows) for rows in sealed.values()), rng))
 
     (out_dir / "crops").mkdir(parents=True)
+    names = list(context or [])
     rows = cut_crops(out_dir, sealed, index, pooled, crop_half_um, ids,
-                     context_channels(project_dir, [d.name for d in sealed], stain),
+                     context_channels(project_dir, [d.name for d in sealed], names),
                      nuclei_dir, masks_dir)
     write_manifest(manifest, stain, rows, index, seed, crop_half_um, contrast)
     manifest.with_suffix(".json").write_text(json.dumps(
@@ -370,7 +405,7 @@ def build(project_dir: Path, stain: str, stain_channel: int | None, categories: 
             f"stain {stain!r}: neurons given no crop; skip_from {skip_from}, first stain named."])
     (out_dir / "scoring.json").write_text(json.dumps(
         {"stain": stain, "categories": keys, "n_crops": len(rows),
-         "channels": ["dapi", "neun", stain]}, indent=2))
+         "channels": ["dapi", "neun", stain], "context": names}, indent=2))
     out_dir.rename(final)  # the build exists only from here: crops, manifest and settings at once
     return ScoreResult(stain, len(rows), 0)
 
@@ -460,7 +495,8 @@ def extend(project_dir: Path, stain: str, only: list[str] | None = None,
     (incoming / "crops").mkdir(parents=True)
     half_um = float(crop_half_um) if crop_half_um is not None else float(meta["crop_half_um"])
     new = cut_crops(incoming, sealed, index, None, half_um, iter(fresh),
-                    context_channels(project_dir, [d.name for d in sealed], stain),
+                    context_channels(project_dir, [d.name for d in sealed],
+                                     context(project_dir, stain)),
                     nuclei_dir, masks_dir)
     meta["stain_channels"] = {**meta.get("stain_channels", {}), **index}
     meta["fovs"] = [d.name for d in fov_dirs(project_dir)]
@@ -739,19 +775,22 @@ def view_arrays(crop, mip: bool) -> dict[str, np.ndarray]:
     return {k: crop[k].max(axis=0) if mip and not k.endswith("_limits") else crop[k] for k in crop}
 
 
-def add_channels(viewer, crop, stain: str, spacing: list[float], display: dict) -> None:
-    """Add DAPI, NeuN and the stain to `viewer`: visibility from display or SCORING_DISPLAY
-    defaults, limits and gamma from display, additive blending at SCORING_WEIGHTS opacity."""
+def add_channels(viewer, crop, stain: str, spacing: list[float], display: dict,
+                 context: list[str] = ()) -> None:
+    """Add DAPI, NeuN, the stain and each `context` stain the crop holds (one CONTEXT_COLOURS
+    each) to `viewer`: visibility from display or SCORING_DISPLAY defaults, limits and gamma from
+    display, additive blending at SCORING_WEIGHTS opacity."""
     for name, (colormap, default_visible) in SCORING_DISPLAY.items():
         viewer.add_image(crop[name], name=stain.upper() if name == "stain" else name.upper(),
                          scale=spacing, colormap=colormap, blending="additive",
                          visible=display[name].get("visible", default_visible),
                          contrast_limits=display[name]["limits"],
                          gamma=display[name]["gamma"], opacity=SCORING_WEIGHTS.get(name, 1.0))
-    for name in SCORING_CONTEXT.get(stain, []):
+    for i, name in enumerate(context):
         if name in crop:
             look = display.get(name, {"limits": list(crop[f"{name}_limits"]), "gamma": 1.0})
-            viewer.add_image(crop[name], name=name.upper(), scale=spacing, colormap=CONTEXT_COLOUR,
+            viewer.add_image(crop[name], name=name.upper(), scale=spacing,
+                             colormap=CONTEXT_COLOURS[i % len(CONTEXT_COLOURS)],
                              blending="additive", visible=look.get("visible", True),
                              contrast_limits=look["limits"],
                              gamma=look["gamma"], opacity=SCORING_WEIGHTS.get(name, 1.0))
@@ -903,7 +942,7 @@ def tune_crops(project_dir: Path, stain: str,
     for fov in dict.fromkeys(f for f, _ in points):
         fov_dir = project_dir / "fovs" / fov
         meta = census.read_meta(fov_dir)
-        ctx = context_channels(project_dir, [fov], stain)[fov]
+        ctx = context_channels(project_dir, [fov], context(project_dir, stain))[fov]
         channels = {**meta["channels_loaded"], "stain": int(built["stain_channels"][fov]), **ctx}
         data = io.read_fov(meta["source"], meta["series"], channels)
         spacing = np.array(data.spacing_um)
@@ -941,7 +980,8 @@ def tune_display(project_dir: Path, stain: str, n: int = TUNE_SAMPLE, seed: int 
     rule = {"n": len(sample), "seed": seed,
             "rule": (f"random points >= {census.NEURON_DIAMETER_UM:g} um from every census mark, "
                      f"round robin over cases and fovs")}
-    names = ("dapi", "neun", *SCORING_CONTEXT.get(stain, []))
+    also = context(project_dir, stain)
+    names = ("dapi", "neun", *also)
     channel_of = {stain.upper(): "stain", **{c.upper(): c for c in names}}
     viewer = napari.Viewer(title=f"DISPLAY {stain}", ndisplay=2)
     state = {"i": 0, "view": VIEWS[0]}
@@ -1010,7 +1050,7 @@ def tune_display(project_dir: Path, stain: str, n: int = TUNE_SAMPLE, seed: int 
         captured = box_state[state["i"]].get(state["view"], {})
         viewer.layers.clear()
         add_channels(viewer, arrays, stain, spacing[1:] if mip else spacing,
-                     {**item["display"], **captured})
+                     {**item["display"], **captured}, also)
         widen(viewer)
         if not mip:
             viewer.dims.set_point(0, item["arrays"]["stain"].shape[0] // 2 * spacing[0])
@@ -1134,7 +1174,7 @@ def open_viewer(project_dir: Path, stain: str, todo: list[str], manifest: dict,
                 screenshot: Path | None = None, target_size_um: float = TARGET_SIZE_UM,
                 blind: bool = True) -> None:
     """One napari window stepping through crops: 1..k answer, n adds a note, s skips, b goes back
-    one crop, m switches planes <-> MIP. Contrast, gamma or visibility changed on a crop carries to
+    one crop, m switches planes <-> MIP, c shows or hides the other stains. Contrast, gamma or visibility changed on a crop carries to
     every later crop (per view) and is saved to display.json, which the next session starts from."""
     import napari
     import napari.layers
@@ -1143,12 +1183,14 @@ def open_viewer(project_dir: Path, stain: str, todo: list[str], manifest: dict,
     keys = settings(project_dir, stain)["categories"]
     total = len(queue(project_dir, stain))
     saved = saved_display(project_dir, stain)
+    also = context(project_dir, stain)
 
     header = f"\u2500\u2500 SCORING  {stain} \u2500\u2500 {len(todo)} crops left "
     bar = "\u2500" * max(2, 50 - len(header))
     print(f"\n{header}{bar}")
     print("  " + " \u00b7 ".join(f"{i} = {c}" for i, c in enumerate(keys, 1)))
-    print("  n = note \u00b7 s = skip \u00b7 b = back \u00b7 m = MIP/planes \u00b7 o = outlines")
+    print("  n = note \u00b7 s = skip \u00b7 b = back \u00b7 m = MIP/planes \u00b7 o = outlines"
+          + (" \u00b7 c = other stains" if also else ""))
     print("  blind: shuffled, image names hidden" if blind else "  not blind: in order, image names shown")
     print("  Every answer is saved. Close the window to stop; it resumes here.\n")
 
@@ -1162,7 +1204,7 @@ def open_viewer(project_dir: Path, stain: str, todo: list[str], manifest: dict,
     view_limits: dict[str, list[float]] = {}
     looks = {v: dict((saved or {}).get("views", {}).get(v, {})) for v in VIEWS}
     channel_of = {stain.upper(): "stain", "DAPI": "dapi", "NEUN": "neun",
-                  **{c.upper(): c for c in SCORING_CONTEXT.get(stain, [])}}
+                  **{c.upper(): c for c in also}}
     shown: dict[str, dict] = {}
 
     def current() -> dict[str, dict]:
@@ -1227,7 +1269,7 @@ def open_viewer(project_dir: Path, stain: str, todo: list[str], manifest: dict,
         elif "stain" not in carried and saved is None and isinstance(view, list):
             display["stain"] = {**display["stain"], "limits": view}
         viewer.layers.clear()
-        add_channels(viewer, arrays, stain, spacing[1:] if mip else spacing, display)
+        add_channels(viewer, arrays, stain, spacing[1:] if mip else spacing, display, also)
         add_marks(viewer, unit, other_marks(project_dir, unit), mip, target_size_um)
         add_outlines(viewer, arrays, spacing[1:] if mip else spacing, mip,
                      state["show_outlines"])
@@ -1294,10 +1336,20 @@ def open_viewer(project_dir: Path, stain: str, todo: list[str], manifest: dict,
             if layer:
                 layer.visible = state["show_outlines"]
 
+    def toggle_context() -> None:
+        """Show or hide every other-stain layer; the choice carries like any visibility."""
+        layers = [layer for layer in viewer.layers if isinstance(layer, napari.layers.Image)
+                  and layer.name in {c.upper() for c in also}]
+        visible = not any(layer.visible for layer in layers)
+        for layer in layers:
+            layer.visible = visible
+
     actions: dict[str, Callable[[], None]] = {"n": note, "s": skip, "b": back, "m": switch_mip,
                                                "o": toggle_outlines}
     if raw:
         actions["h"] = switch_view
+    if also:
+        actions["c"] = toggle_context
     for i, category in enumerate(keys, 1):
         actions[str(i)] = lambda category=category: pick(category)
 

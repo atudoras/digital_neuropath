@@ -34,7 +34,7 @@ python3 score_neurons.py
 goes with the 1st image. Images are `.tif` (OME or ImageJ, voxel size read from the file) or
 `.lif`; masks are labelled `.tif` or NeuroVIT `.cmap`. Each image file is one case. Close a window
 to stop; the same command resumes. Run again with the same OUTPUT to continue: neurons already
-called are skipped, and only the stains in `SCORE` are shown. A new OUTPUT name starts a new
+called are skipped, and only the stains in `SCORE` are shown; `ALSO_SHOW` loads other stains in a stain's window. A new OUTPUT name starts a new
 dataset; the old one is left as it is.
 
 ## Modules
@@ -43,7 +43,7 @@ dataset; the old one is left as it is.
 |---|---|
 | Neurons | click each neuron once on its widest plane; close the window, type `y` in Terminal |
 | Refinement | click a neuron to include/exclude (orange = suggested exclusion); close the window when done |
-| Scoring | `1`–`k` your categories, then unsure and not scoreable · `n` note · `s` skip · `b` back · `m` MIP/planes · `o` outlines; contrast you set is kept for the next neurons |
+| Scoring | `1`–`k` your categories, then unsure and not scoreable · `n` note · `s` skip · `b` back · `m` MIP/planes · `o` outlines · `c` other stains; contrast you set is kept for the next neurons |
 
 ## Outputs
 
